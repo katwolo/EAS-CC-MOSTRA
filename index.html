@@ -432,6 +432,7 @@ async function doLogin(username,password){
   if(r.initialData){ var d=r.initialData;
     state._courses=d.courses; state._modsByCurs=d.modsByCurs;
     state._allModules=d.allModules; state._allClasses=d.allClasses; state._capabilities=d.capabilities; }
+  state._avisos=r.avisos||[];
   state.device=resolveDevice(); enterApp();
 }
 /* ---------- accés ràpid per rol (demo) ---------- */
@@ -473,11 +474,45 @@ function enterApp(){
   var fab=$('helpFab'); if(fab) fab.style.display='flex';
   if(u.mustChangePassword){ renderForceChangePassword(); return; }
   buildNav();
+  showAvisosBanner(state._avisos||[]);
   var mobileOnly=(state.device==='mobile');
   var defaultView=(u.rol==='admin')?'usuaris':(u.rol==='alumne')?'alumneresum':(mobileOnly?'registrar':'inici');
   var rs=$('roleSwitch'); if(rs) rs.value=u.rol;
   go(defaultView);
   maybeAutoTour();
+}
+function showAvisosBanner(avisos){
+  var old=$('avisosBanner'); if(old) old.parentNode.removeChild(old);
+  if(!avisos||!avisos.length) return;
+  var readIds=(state.user&&state.user.avisos_llegits)||[];
+  var unseen=avisos.filter(function(a){ return readIds.indexOf(String(a.id))===-1; });
+  if(!unseen.length) return;
+  var shown=unseen.slice(0,5);
+  var items=shown.map(function(a){
+    return '<div style="padding:14px 0;border-bottom:1px solid var(--border,#e5e7eb)">'
+      +'<div style="font-size:15px;line-height:1.5;color:var(--text,#111)">'+avisFmt(a.text)+'</div>'
+      +'</div>';
+  }).join('');
+  var overlay=document.createElement('div');
+  overlay.id='avisosBanner';
+  overlay.style.cssText='position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML=
+    '<div style="background:var(--surface,#fff);border:1px solid var(--border,#d7dde8);border-radius:12px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.35);padding:24px 24px 16px">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+    +'<div style="font-weight:700;font-size:17px;color:var(--text,#111)">📢 Missatge de l\'equip</div>'
+    +'</div>'
+    +items
+    +'<div style="text-align:right;margin-top:16px"><button class="btn" id="avisosBannerOk">Entès</button></div>'
+    +'</div>';
+  document.body.appendChild(overlay);
+  document.getElementById('avisosBannerOk').addEventListener('click',function(){
+    var shownIds=shown.map(function(a){return String(a.id);});
+    // Actualitza l'estat local immediatament
+    if(state.user) state.user.avisos_llegits=(state.user.avisos_llegits||[]).concat(shownIds);
+    var b=document.getElementById('avisosBanner'); if(b) b.parentNode.removeChild(b);
+    // Desa al Sheets en segon pla (no bloqueja la UI)
+    call('markAvisosLlegits',{ids:shownIds, username:state.user&&state.user.username}).catch(function(){});
+  });
 }
 function buildNav(){
   if(state.user&&state.user.rol==='admin'){
@@ -886,6 +921,7 @@ async function editBlock(mc,letter,startCol){
   state.curs=d.curs; state.classe=d.classe; state.module={codi:mc,nom:d.moduleNom||mc};
   state.projecte={num:d.projNum,nom:d.projNom}; state.activity=d.activitat; state.data=d.data;
   state.grades=d.grades; state.curInd=0; state.step=6;
+  state.grup=(d.grup!=null)?d.grup:null; state.hasGrups=(d.grup!=null);
   go('registrar');
 }
 
@@ -1361,7 +1397,7 @@ async function doRequestResetFromLogin(){
   if(!username.trim()) return showError('Introdueix el teu nom d\'usuari per sol·licitar el restabliment.');
   var r=await call('requestPasswordReset',{username:username.trim()});
   if(!r||!r.ok) return showError(r&&r.error?r.error:'Error enviant la sol·licitud.');
-  clearError(); setPing('Sol·licitud registrada. L\'administrador restablirà la teva contrasenya en breu.');
+  clearError(); setPing('Contrasenya restablerta. Comprova el teu correu corporatiu per accedir.');
 }
 
 /* ====================== ADMIN: GESTIÓ D'USUARIS ====================== */
@@ -1373,16 +1409,19 @@ async function renderUsuaris(){
       '<button class="btn sm '+(state.adminTab==='classes'?'':'ghost')+'" onclick="setAdminTab(\'classes\')">Classes</button>'+
       '<button class="btn sm '+(state.adminTab==='desdoblaments'?'':'ghost')+'" onclick="setAdminTab(\'desdoblaments\')">Desdoblaments</button>'+
       '<button class="btn sm '+(state.adminTab==='avisos'?'':'ghost')+'" id="tabAvisos" onclick="setAdminTab(\'avisos\')">Avisos</button>'+
+      '<button class="btn sm '+(state.adminTab==='missatges'?'':'ghost')+'" onclick="setAdminTab(\'missatges\')">Missatges</button>'+
     '</div>'+
     '<div id="adminBody"><div class="empty">Carregant…</div></div>';
   var r=await call('getAdminUsers');
   if(!r||!r.ok) return showError(r&&r.error?r.error:'Error carregant usuaris.');
   var ad=r.data;
-  var nAvisos=(ad.admins||[]).concat(ad.professors||[]).concat(ad.alumnes||[]).filter(function(u){return u.resetRequest;}).length;
+  state._adminUsers=[].concat(ad.admins||[]).concat(ad.professors||[]).concat(ad.alumnes||[]);
+  var nAvisos=state._adminUsers.filter(function(u){return u.resetRequest;}).length;
   var tabBtn=$('tabAvisos'); if(tabBtn&&nAvisos) tabBtn.textContent='Avisos ('+nAvisos+')';
   if(state.adminTab==='usuaris') renderAdminUsuarisTab(ad);
   else if(state.adminTab==='classes') renderAdminClassesTab();
   else if(state.adminTab==='desdoblaments') renderAdminDesdoblTab(ad);
+  else if(state.adminTab==='missatges') renderAdminMissatgesTab();
   else renderAdminAvisosTab(ad);
 }
 function setAdminTab(t){ state.adminTab=t; renderUsuaris(); }
@@ -1516,21 +1555,173 @@ async function doDeleteUser(btn,uid){
 }
 function renderAdminAvisosTab(ad){
   var tots=(ad.admins||[]).concat(ad.professors||[]).concat(ad.alumnes||[]);
+  var withResets=tots.filter(function(u){return u.resets>0||u.resetRequest;});
   var pending=tots.filter(function(u){return u.resetRequest;});
-  if(!pending.length){
-    $('adminBody').innerHTML='<div class="empty">No hi ha sol·licituds pendents.</div>';
+  if(!withResets.length){
+    $('adminBody').innerHTML='<div class="empty">No hi ha sol·licituds pendents ni historial de restabliments.</div>';
     return;
   }
-  var rows=pending.map(function(u){
+  var rows=withResets.map(function(u){
+    var badge=u.resets>0?'<span style="display:inline-block;min-width:22px;padding:1px 6px;border-radius:10px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;text-align:center">'+u.resets+'</span>':'—';
+    var lastReset=u.resetRequest?('<span style="font-size:12px;color:var(--muted)">'+esc(u.resetRequest)+'</span>'):'<span style="color:var(--muted);font-size:12px">—</span>';
     return '<tr><td>'+esc(u.cognom)+', '+esc(u.nom)+'</td>'+
       '<td class="mono" style="font-size:12px">'+esc(u.username)+'</td>'+
-      '<td class="muted" style="font-size:12px;white-space:nowrap">'+esc(u.resetRequest)+'</td>'+
+      '<td style="text-align:center">'+badge+'</td>'+
+      '<td>'+lastReset+'</td>'+
       '<td style="text-align:right"><button class="btn sm" onclick=\'openResetPwd('+j({id:u.id,nom:u.nom,cognom:u.cognom,username:u.username})+')\'">Restablir</button></td></tr>';
   }).join('');
+  var pendentInfo=pending.length?('<div style="margin-bottom:10px;font-size:13px;color:var(--accent);font-weight:600">'+pending.length+' sol·licitud'+(pending.length>1?'s':'')+' pendent'+(pending.length>1?'s':'')+'</div>'):'';
   $('adminBody').innerHTML=
     '<div class="panel" style="padding:6px 8px;overflow:auto">'+
-    '<table><thead><tr><th>Nom</th><th>Usuari</th><th>Sol·licitud</th><th></th></tr></thead>'+
+    (pendentInfo?'<div style="padding:8px 8px 0">'+pendentInfo+'</div>':'')+
+    '<table><thead><tr><th>Nom</th><th>Usuari</th><th style="text-align:center">Restabliments</th><th>Últim restabliment</th><th></th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table></div>';
+}
+function avisFmt(t){
+  return String(t||'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/_(.*?)_/g,'<em>$1</em>')
+    .replace(/^- (.+)$/gm,'<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/gs,'<ul style="margin:4px 0 4px 18px;padding:0">$1</ul>')
+    .replace(/\n/g,'<br>');
+}
+function avisInsertFmt(prefix,suffix){
+  var ta=$('avisText'); if(!ta) return;
+  var s=ta.selectionStart,e=ta.selectionEnd,v=ta.value;
+  var sel=v.substring(s,e)||'text';
+  ta.value=v.substring(0,s)+prefix+sel+suffix+v.substring(e);
+  ta.focus(); ta.selectionStart=s+prefix.length; ta.selectionEnd=s+prefix.length+sel.length;
+}
+function renderAdminMissatgesTab(){
+  // Calcula llista de classes a partir dels alumnes
+  var classes=[]; var seen={};
+  (state._adminUsers||[]).forEach(function(u){ if(u.rol==='alumne'&&u.classe&&!seen[u.classe]){seen[u.classe]=true;classes.push(u.classe);} });
+  classes.sort();
+  // Llista de tots els usuaris (no admin) per targeting individual
+  var usersForTarget=(state._adminUsers||[]).filter(function(u){return u.rol!=='admin';});
+  var classesOpts=classes.map(function(c){
+    return '<label style="display:inline-flex;align-items:center;gap:5px;margin:4px 8px 4px 0;cursor:pointer;font-weight:normal">'
+      +'<input type="checkbox" class="avisClasse" value="'+esc(c)+'"> '+esc(c)+'</label>';
+  }).join('');
+  var usersOpts=usersForTarget.map(function(u){
+    var label=esc(u.cognom)+', '+esc(u.nom)+' <span style="color:var(--muted);font-size:11px">('+esc(u.rol)+(u.classe?' · '+esc(u.classe):'')+')';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer;font-weight:normal" class="avisUserRow">'
+      +'<input type="checkbox" class="avisUser" value="'+esc(u.username)+'"> <span>'+label+'</span></label>';
+  }).join('');
+  $('adminBody').innerHTML=
+    '<div class="panel" style="padding:16px">'+
+      '<h3 style="margin:0 0 12px">Envia un missatge</h3>'+
+      '<label>Missatge</label>'+
+      '<div class="row" style="gap:4px;margin-bottom:4px;flex-wrap:wrap">'+
+        '<button class="btn sm ghost" onclick="avisInsertFmt(\'**\',\'**\')" title="Negreta"><strong>B</strong></button>'+
+        '<button class="btn sm ghost" onclick="avisInsertFmt(\'_\',\'_\')" title="Cursiva"><em>I</em></button>'+
+        '<button class="btn sm ghost" onclick="avisInsertFmt(\'\\n- \',\'\')" title="Punt de llista">• Llista</button>'+
+      '</div>'+
+      '<textarea id="avisText" class="field" rows="5" placeholder="Escriu el missatge… (**negreta**, _cursiva_, - punt de llista)" style="width:100%;resize:vertical;font-family:monospace;font-size:13px"></textarea>'+
+      '<label style="margin-top:14px;display:block">Destinataris</label>'+
+      '<div class="row" style="gap:6px;margin-bottom:12px;flex-wrap:wrap">'+
+        '<button id="avisMode_rol" class="btn sm" onclick="setAvisMode(\'rol\')">Per rol</button>'+
+        '<button id="avisMode_classe" class="btn sm ghost" onclick="setAvisMode(\'classe\')">Per classe</button>'+
+        '<button id="avisMode_individual" class="btn sm ghost" onclick="setAvisMode(\'individual\')">Individualment</button>'+
+      '</div>'+
+      // Panel rol
+      '<div id="avisModePanel_rol">'+
+        '<div class="row" style="gap:16px;margin-top:4px">'+
+          '<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer"><input type="checkbox" id="avisProf" checked> Professorat</label>'+
+          '<label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer"><input type="checkbox" id="avisAlum"> Alumnat</label>'+
+        '</div>'+
+      '</div>'+
+      // Panel classe
+      '<div id="avisModePanel_classe" style="display:none">'+
+        (classesOpts||'<span style="color:var(--muted);font-size:13px">No hi ha classes disponibles.</span>')+
+      '</div>'+
+      // Panel individual
+      '<div id="avisModePanel_individual" style="display:none">'+
+        '<input id="avisUserFilter" class="field" style="margin-bottom:8px" placeholder="Filtrar per nom o usuari…" oninput="filterAvisUsers(this.value)">'+
+        '<div id="avisUserList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0 10px">'+
+          (usersOpts||'<div class="empty">No hi ha usuaris.</div>')+
+        '</div>'+
+      '</div>'+
+      '<button class="btn" style="margin-top:16px" onclick="doSendAvis(this)">Enviar missatge</button>'+
+    '</div>'+
+    '<div id="avisHistorial" style="margin-top:16px"><div class="empty">Carregant historial…</div></div>';
+  loadAvisHistorial();
+}
+function setAvisMode(mode){
+  ['rol','classe','individual'].forEach(function(m){
+    var btn=$('avisMode_'+m); if(btn){btn.className=m===mode?'btn sm':'btn sm ghost';}
+    var panel=$('avisModePanel_'+m); if(panel) panel.style.display=m===mode?'':'none';
+  });
+}
+function filterAvisUsers(q){
+  q=q.toLowerCase();
+  var rows=document.querySelectorAll('#avisUserList .avisUserRow');
+  rows.forEach(function(row){
+    var txt=row.textContent.toLowerCase();
+    row.style.display=(!q||txt.indexOf(q)>=0)?'':'none';
+  });
+}
+async function loadAvisHistorial(){
+  var r=await call('getAvisos',{rol:''});
+  if(!r||!r.ok||!r.avisos||!r.avisos.length){
+    $('avisHistorial').innerHTML='<div class="empty">No hi ha missatges enviats.</div>'; return;
+  }
+  var items=r.avisos.map(function(a,i){
+    var id='avHist'+i;
+    var destLabel='';
+    if(a.destinataris&&a.destinataris.length){
+      destLabel=a.destinataris.length===1?a.destinataris[0]:a.destinataris.length+' usuaris';
+    } else if(a.classes&&a.classes.length){
+      destLabel='Classe: '+a.classes.join(', ');
+    } else {
+      destLabel=(a.rols||[]).map(function(r){return r==='professor'?'Professorat':r==='alumne'?'Alumnat':r;}).join(', ');
+    }
+    var preview=String(a.text||'').replace(/\*\*|_/g,'').substring(0,60)+(a.text&&a.text.length>60?'…':'');
+    return '<div style="border-bottom:1px solid var(--border,#e5e7eb)">'
+      +'<button onclick="var c=document.getElementById(\''+id+'\');var o=c.style.display===\'none\';c.style.display=o?\'block\':\'none\';this.querySelector(\'.arr\').textContent=o?\'▲\':\'▼\'" '
+      +'style="width:100%;background:none;border:none;text-align:left;padding:10px 8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+        +'<span style="font-size:13px;color:var(--text,#111);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(preview)+'</span>'
+        +'<span style="font-size:11px;color:var(--muted,#888);white-space:nowrap;flex-shrink:0">'+esc(destLabel)+' · '+esc(a.data)+'</span>'
+        +'<span class="arr" style="font-size:10px;color:var(--muted,#888);flex-shrink:0">▼</span>'
+      +'</button>'
+      +'<div id="'+id+'" style="display:none;padding:0 8px 12px;font-size:13px;line-height:1.6;color:var(--text,#111)">'+avisFmt(a.text)
+        +'<div style="margin-top:8px;font-size:11px;color:var(--muted,#888)">'+esc(destLabel)+' · '+esc(a.data)+' · Autor: '+esc(a.autor)+'</div>'
+      +'</div>'
+      +'</div>';
+  }).join('');
+  $('avisHistorial').innerHTML=
+    '<div class="panel" style="padding:0 8px">'
+    +'<div style="font-weight:600;padding:10px 0 6px;font-size:13px">Historial de missatges ('+r.avisos.length+')</div>'
+    +items+'</div>';
+}
+async function doSendAvis(btn){
+  if(btn&&btn.disabled) return;
+  var text=($('avisText')||{}).value||'';
+  if(!text.trim()) return showError('Escriu un missatge.');
+  // Detecta mode actiu
+  var mode='rol';
+  if($('avisMode_classe')&&!$('avisMode_classe').classList.contains('ghost')) mode='classe';
+  else if($('avisMode_individual')&&!$('avisMode_individual').classList.contains('ghost')) mode='individual';
+  var payload={text:text.trim(), mode:mode, autor:(state.user&&(state.user.nom+' '+state.user.cognom).trim())||'admin', rols:[], classes:[], destinataris:[]};
+  if(mode==='rol'){
+    if($('avisProf')&&$('avisProf').checked) payload.rols.push('professor');
+    if($('avisAlum')&&$('avisAlum').checked) payload.rols.push('alumne');
+    if(!payload.rols.length) return showError('Selecciona almenys un rol.');
+  } else if(mode==='classe'){
+    document.querySelectorAll('.avisClasse:checked').forEach(function(cb){ payload.classes.push(cb.value); });
+    if(!payload.classes.length) return showError('Selecciona almenys una classe.');
+  } else {
+    document.querySelectorAll('.avisUser:checked').forEach(function(cb){ payload.destinataris.push(cb.value); });
+    if(!payload.destinataris.length) return showError('Selecciona almenys un destinatari.');
+  }
+  btnBusy_(btn,'Enviant…');
+  var r=await call('saveAvis',payload);
+  btnFree_(btn);
+  if(!r||!r.ok) return showError(r&&r.error?r.error:'Error enviant el missatge.');
+  toast('Missatge desat. Apareixerà als usuaris quan entrin.');
+  $('avisText').value='';
+  loadAvisHistorial();
 }
 async function renderAdminDesdoblTab(ad){
   var classes=[]; var seen={};
@@ -2119,7 +2310,8 @@ var DEMO_INFO={
   usuaris:{t:'Gestió d\'usuaris',
     h:'Panell de l\'administració.'+
       '<ul><li><b>Usuaris</b>: cerca, edita dades i rol, restableix contrasenyes o esborra usuaris.</li><li><b>Classes</b>: activa l\'historial visible per a l\'alumnat de cada classe.</li>'+
-      '<li><b>Desdoblaments</b>: reparteix l\'alumnat d\'un mòdul en grups G1/G2.</li><li><b>Avisos</b>: sol·licituds de restabliment de contrasenya pendents.</li></ul>'},
+      '<li><b>Desdoblaments</b>: reparteix l\'alumnat d\'un mòdul en grups G1/G2.</li><li><b>Avisos</b>: sol·licituds de restabliment de contrasenya i quantes vegades l\'ha demanat cada usuari.</li>'+
+      '<li><b>Missatges</b>: envia avisos al professorat, a l\'alumnat, a classes concretes o a persones concretes. Apareixen com a finestra emergent quan entren (prova d\'enviar-ne un i canvia de rol).</li></ul>'},
   actcataleg:{t:'Catàleg comú d\'activitats',
     h:'Activitats compartides per tots els mòduls i tot el professorat. Cada activitat defineix quins indicadors de les Capacitats Clau s\'hi avaluen.'}
 };
@@ -2143,6 +2335,7 @@ function openDemoHelp(){
     '<div style="font-size:14px;line-height:1.6">'+(info?info.h:'Utilitza el menú superior per navegar per les diferents seccions.')+'</div>'+
     '<div class="panel" style="margin:16px 0 0;padding:12px 14px;font-size:13px"><b>Sobre aquesta demo</b><br><span class="muted">Totes les persones i notes són fictícies. Pots crear, editar i esborrar el que vulguis: els canvis es guarden només en aquest navegador i es poden desfer amb «Restablir dades».</span></div>'+
     '<div class="actions" style="flex-wrap:wrap">'+
+      '<button class="btn ghost" onclick="window.open(\'help.html\',\'_blank\')">📋 Guia d\'ús completa</button>'+
       '<button class="btn ghost" onclick="closeModal();startTour(true)">▶ Recorregut guiat</button>'+
       '<button class="btn ghost" onclick="try{localStorage.removeItem(\'eascc_demo_info_hidden\')}catch(e){};closeModal();renderDemoInfo(state.view);toast(\'Explicacions reactivades.\')">Torna a mostrar les explicacions</button>'+
       '<button class="btn" onclick="closeModal()">Tancar</button></div>');
@@ -2167,7 +2360,7 @@ var TOURS={
   ],
   admin:[
     {sel:'#app .demo-banner',t:'Vista d\'administració',d:'Gestiona la configuració de tota l\'aplicació. Pots tornar al rol de professor/a o alumne/a des d\'aquí.'},
-    {sel:'#nav [data-v="usuaris"]',t:'Gestió d\'usuaris',d:'Usuaris, classes amb historial, desdoblaments i avisos de contrasenya.'},
+    {sel:'#nav [data-v="usuaris"]',t:'Gestió d\'usuaris',d:'Usuaris, classes amb historial, desdoblaments, avisos de contrasenya i missatges massius a l\'equip i a l\'alumnat.'},
     {sel:'#nav [data-v="actcataleg"]',t:'Catàleg d\'activitats',d:'Activitats comunes a tots els mòduls, amb els indicadors que avaluen.'},
     {sel:'#nav [data-v="exemples"]',t:'Exemples pràctics',d:'Quins exemples i presentacions es mostren al professorat.'},
     {sel:'#helpFab',t:'Ajuda',d:'Torna a obrir les explicacions de cada pantalla.'}
@@ -2177,7 +2370,8 @@ var _tour=null;
 function maybeAutoTour(){
   var role=state.user&&state.user.rol; if(!role||state.user.mustChangePassword) return;
   var seen=false; try{ seen=!!localStorage.getItem('eascc_demo_tour_'+role); }catch(e){}
-  if(!seen) setTimeout(function(){ startTour(false); }, 500);
+  if(seen) return;
+  (function wait(){ if($('avisosBanner')) return setTimeout(wait,400); setTimeout(function(){ startTour(false); },300); })();
 }
 function startTour(){
   var role=state.user&&state.user.rol; if(!role) return;
@@ -2269,9 +2463,42 @@ function drawRadar(canvas, values, color, pointColors){
 }
 function hexA(hex,a){hex=hex.replace('#','');var r=parseInt(hex.substr(0,2),16),g=parseInt(hex.substr(2,2),16),b=parseInt(hex.substr(4,2),16);return 'rgba('+r+','+g+','+b+','+a+')';}
 initTheme();
+
+/* ── Easter egg: codi secret 170588 ── */
+(function(){
+  var seq='170588', buf='';
+  document.addEventListener('keypress',function(e){
+    if(document.activeElement&&(document.activeElement.tagName==='INPUT'||document.activeElement.tagName==='TEXTAREA')) return;
+    buf+=e.key; if(buf.length>seq.length) buf=buf.slice(-seq.length);
+    if(buf===seq){ buf=''; showCredits_(); }
+  });
+  function showCredits_(){
+    var old=document.getElementById('creditsOverlay'); if(old) old.parentNode.removeChild(old);
+    var o=document.createElement('div');
+    o.id='creditsOverlay';
+    o.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px';
+    o.innerHTML='<div style="background:radial-gradient(ellipse at 65% 25%,#1a2550 0%,#060a14 100%);border:1px solid rgba(79,142,247,.22);border-radius:20px;padding:36px 36px 32px;max-width:400px;width:100%;text-align:center;box-shadow:0 0 0 1px rgba(255,255,255,.04),0 40px 80px rgba(0,0,0,.7);position:relative;overflow:hidden">'
+      +'<div style="position:absolute;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(79,142,247,.18) 0%,transparent 70%);top:-90px;right:-60px;pointer-events:none"></div>'
+      +'<div style="font-size:11px;letter-spacing:6px;color:rgba(79,142,247,.6);margin-bottom:16px">· · · · ·</div>'
+      +'<div style="font-size:32px;font-weight:800;color:#fff;letter-spacing:.02em;margin-bottom:2px">EAS CC</div>'
+      +'<div style="font-size:11px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:rgba(79,142,247,.9);margin-bottom:24px">versió 2.0</div>'
+      +'<div style="border-top:1px solid rgba(79,142,247,.18);margin-bottom:20px"></div>'
+      +'<div style="font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.35);margin-bottom:8px">Creadors</div>'
+      +'<div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Nau MB &amp; Iván BV</div>'
+      +'<div style="font-size:12px;color:rgba(255,255,255,.4);margin-bottom:22px">des de juny de 2026</div>'
+      +'<div style="font-size:12.5px;line-height:1.7;color:rgba(255,255,255,.65);font-style:italic;margin-bottom:26px;border-left:2px solid rgba(79,142,247,.5);padding:2px 14px;text-align:left">'
+      +'"Més d\'un any forjant les bases del demà: dues mirades, l\'impuls de tot l\'equip EAS i les capacitats clau que ens faran imparables."'
+      +'</div>'
+      +'<button onclick="document.getElementById(\'creditsOverlay\').parentNode.removeChild(document.getElementById(\'creditsOverlay\'))" style="background:transparent;border:1px solid rgba(79,142,247,.5);color:rgba(79,142,247,.9);border-radius:8px;padding:10px 32px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.04em">Tancar</button>'
+      +'</div>';
+    document.body.appendChild(o);
+    o.addEventListener('click',function(e){ if(e.target===o){ o.parentNode.removeChild(o); } });
+  }
+})();
 </script>
 <button id="helpFab" onclick="openDemoHelp()" title="Ajuda d'aquesta pantalla" aria-label="Ajuda">?</button>
 <div id="tourBlock"></div><div id="tourHole"></div><div id="tourCard"></div>
 <div id="exemOverlay"><div id="exemBar"><span id="exemActTitle"></span><div id="exemBarRight"><a id="exemPptBtn" target="_blank" rel="noopener" style="display:none">⬇ PPT</a><button id="exemCloseBtn" onclick="closeExemples()" title="Tancar (Esc)">✕</button></div></div><iframe title="Exemples pràctics" allow="fullscreen"></iframe></div>
+<footer style="text-align:center;padding:14px 20px;font-size:11px;color:var(--muted,#8b93a7);border-top:1px solid var(--border,#2e3650);margin-top:auto">© 2026 Nau MB i Iván BV · Tots els drets reservats</footer>
 </body>
 </html>

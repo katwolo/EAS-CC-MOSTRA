@@ -22,7 +22,7 @@ En lloc d'usuari i contrasenya, la pantalla d'inici mostra tres targetes per ent
 |-----|------------------|-------------|
 | **Professor/a** | Laia Ferrer | Enregistrar evidències, consultar l'Inici, l'Historial, el Resum MP i l'Alumnat, exportar PDF i el buidatge (CSV), i gestionar activitats i projectes dels seus mòduls. |
 | **Alumne/a** | Aina Puig (1A) | Consultar el seu resum de Capacitats Clau (només amb colors) i l'historial d'activitats avaluades. |
-| **Administrador/a** | Joana (Admin Demo) | Gestionar usuaris, classes, desdoblaments, avisos de contrasenya, el catàleg comú d'activitats i els exemples pràctics. |
+| **Administrador/a** | Joana (Admin Demo) | Gestionar usuaris, classes, desdoblaments, avisos de contrasenya, missatges massius, el catàleg comú d'activitats i els exemples pràctics. |
 
 Des de la barra superior (**Veure com a…**) es pot canviar de rol en qualsevol moment sense tornar a la pantalla d'inici.
 
@@ -34,7 +34,9 @@ Des de la barra superior (**Veure com a…**) es pot canviar de rol en qualsevol
   - *2n · 2A · Esports d'equip i d'implements*: mòdul amb **desdoblaments** (Grup 1 / Grup 2).
   - *1r · 1A · Esports individuals*: hi apareix una alumna de 2n amb el **mòdul pendent**.
   - *1r · 1A · Valoració de la condició física*: hi ha un alumne **no matriculat**.
-  - *Administració → Avisos*: dues sol·licituds de restabliment de contrasenya pendents.
+  - *Administració → Avisos*: dues sol·licituds de restabliment de contrasenya pendents i el comptador de restabliments per usuari.
+  - *Administració → Missatges*: dos missatges d'exemple. En entrar, cada usuari veu una finestra emergent amb els missatges que encara no ha llegit. Si n'envies un de nou i canvies de rol, el veuràs aparèixer.
+- **Guia d'ús completa** (`help.html`): accessible des del botó **?**.
 
 ## Diferències respecte de la versió real
 
@@ -42,7 +44,8 @@ Des de la barra superior (**Veure com a…**) es pot canviar de rol en qualsevol
 |--------|-------------|--------|
 | Dades | Google Sheets del centre | Dades fictícies al navegador |
 | Accés | Usuari i contrasenya personals | Accés directe per rol |
-| Restablir contrasenya | Envia un correu a l'usuari | Es simula i s'indica amb un missatge |
+| Restablir contrasenya | Contrasenya temporal per correu (caduca en 24 h) | Es simula i s'indica amb un missatge |
+| Missatges massius | Es guarden al Google Sheet | Es guarden al navegador |
 | Buidatge de seguiment | Crea un Google Sheet | Es descarrega un fitxer **CSV** (obre amb Excel o Google Sheets) |
 | Assistents externs | Enllaços a assistents d'IA | Eliminats |
 
@@ -60,4 +63,5 @@ També es pot obrir en local servint la carpeta amb qualsevol servidor estàtic 
 |--------|-----------|
 | `index.html` | Interfície de l'aplicació (la mateixa que la real, amb les adaptacions de la demo). |
 | `demo-backend.js` | Backend simulat: reprodueix les accions del servidor real i genera les dades fictícies. |
+| `help.html` | Guia d'ús per al professorat (amb contactes fictícis). |
 | `activitats CC/index.html` | Presentacions dels exemples pràctics. |

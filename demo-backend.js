@@ -11,7 +11,7 @@
 (function(global){
 'use strict';
 
-var STORE_KEY = 'eascc_demo_db_v1';
+var STORE_KEY = 'eascc_demo_db_v2';
 
 /* ============================ CONSTANTS ============================ */
 var CAPS = ['c1','c2','c3','c4','c5','c6','c7'];
@@ -111,6 +111,7 @@ function buildSeed(){
   var id=1;
   function addUser(u){ u.id=String(id++); u.correu=u.correu||(u.username+'@centre-demo.cat');
     ['pendents','noMat','desdoblaments','resetRequest','moduls','classe'].forEach(function(k){ if(u[k]===undefined) u[k]=''; });
+    if(u.resets===undefined) u.resets=0; if(!u.avisosLlegits) u.avisosLlegits=[];
     db.users.push(u); return u; }
   addUser({ nom:'Joana', cognom:'Admin Demo', username:'admin.demo', password:'demo', rol:'admin', moduls:'tots' });
   addUser({ nom:'Laia', cognom:'Ferrer Demo', username:'professor.demo', password:'demo', rol:'professor', moduls:'1139,1136,1140,1138' });
@@ -130,8 +131,17 @@ function buildSeed(){
   byName('Hugo').noMat='1136';                  // alumne de 1A no matriculat a Valoració de la condició física
   ['Queralt','Roger','Sara','Tomàs'].forEach(function(n){ byName(n).desdoblaments='1140:1'; });
   ['Úrsula','Víctor','Xènia','Yeray'].forEach(function(n){ byName(n).desdoblaments='1140:2'; });
-  byName('Marc').resetRequest='14/11/2026 09:42';
-  byName('Pere').resetRequest='15/11/2026 18:05';
+  byName('Marc').resetRequest='14/11/2026 09:42'; byName('Marc').resets=2;
+  byName('Pere').resetRequest='15/11/2026 18:05'; byName('Pere').resets=1;
+  byName('Biel').resets=1; byName('Nora').resets=3;
+
+  // --- Missatges massius (Avisos) d'exemple
+  db.avisos=[
+    { id:'avis_demo_1', text:'Benvinguts i benvingudes a la **demo d\'EAS CC**!\n- Totes les dades són _fictícies_.\n- Pots provar-ho tot sense por: el botó «Restablir dades» ho deixa com al principi.',
+      rols:['professor','alumne'], classes:[], destinataris:[], data:'16/11/2026 09:00', autor:'Joana Admin Demo' },
+    { id:'avis_demo_2', text:'Recordatori: abans del **15 de desembre** cal tenir enregistrades les evidències del primer trimestre.',
+      rols:['professor'], classes:[], destinataris:[], data:'18/11/2026 12:30', autor:'Joana Admin Demo' }
+  ];
 
   // --- Organització (projectes) per mòdul
   db.org = {
@@ -224,6 +234,7 @@ function buildSeed(){
 var DB=null;
 function load_(){
   if(DB) return DB;
+  try{ localStorage.removeItem('eascc_demo_db_v1'); }catch(e){}
   try{ var raw=localStorage.getItem(STORE_KEY); if(raw){ DB=JSON.parse(raw); return DB; } }catch(e){}
   DB=buildSeed(); save_(); return DB;
 }
@@ -301,7 +312,7 @@ function loginUser_(db,p){
   var u=db.users.filter(function(x){return x.username===username;})[0];
   if(!u || u.password!==password) throw new Error('Usuari o contrasenya incorrectes.');
   return { id:u.id, nom:u.nom, cognom:u.cognom, correu:u.correu, username:u.username, rol:u.rol, classe:u.classe||'',
-    moduls:parseModuls_(u.moduls), mustChangePassword: u.password==='1234' };
+    moduls:parseModuls_(u.moduls), mustChangePassword: u.password==='1234', avisos_llegits:(u.avisosLlegits||[]).slice() };
 }
 
 /* ============== CURS / CLASSE / MÒDUL ============== */
@@ -411,7 +422,9 @@ function saveRegistre_(db,p){
   Object.keys(oldNotes).forEach(function(sid){ notes[sid]=oldNotes[sid]; });
   all.forEach(function(s){ var arr=inds.map(function(ind){ var g=grades[ind.codi]||{}; var v=g[s.id]; return (v===null||v===undefined||v==='')?'':String(v); });
     if(arr.some(function(x){return x!=='';})) notes[s.id]=arr; });
-  blocks.push(makeBlock_(db,p.projecteNum,p.projecteNom,p.activitat,p.data,inds,notes));
+  var nb=makeBlock_(db,p.projecteNum,p.projecteNom,p.activitat,p.data,inds,notes);
+  nb.grup=(p.grup!=null&&Number(p.grup)>0)?Number(p.grup):null;
+  blocks.push(nb);
   sortBlocks_(blocks);
   return { width:inds.length, missatge:'Registre desat al mòdul '+p.moduleCodi+' (grup '+letter+').' };
 }
@@ -429,7 +442,7 @@ function getBlockDetail_(db,p){
       grades[ind.codi][sid]=(s.toUpperCase()==='NA')?'NA':Number(s); }); });
   var m=moduleRow_(db,p.moduleCodi); var curs=m?m.curs:'';
   return { startCol:blk.id, classeLetter:p.classeLetter, classe:curs+String(p.classeLetter), curs:curs, moduleNom:m?m.nom:p.moduleCodi,
-    projNum:blk.projNum, projNom:blk.projNom, activitat:blk.activitat, data:blk.data, grades:grades };
+    projNum:blk.projNum, projNom:blk.projNom, activitat:blk.activitat, data:blk.data, grup:(blk.grup!=null?blk.grup:null), grades:grades };
 }
 function deleteRegistre_(db,p){ findBlock_(db,p.moduleCodi,p.classeLetter,p.startCol);
   db.regs[p.moduleCodi][p.classeLetter]=db.regs[p.moduleCodi][p.classeLetter].filter(function(b){return b.id!=Number(p.startCol);}); return true; }
@@ -525,7 +538,7 @@ function getAlumneHistorial_(db,p){
 function getAdminUsers_(db){ var admins=[],professors=[],alumnes=[];
   db.users.forEach(function(u){ if(!u.rol) return;
     var moduls=parseModuls_(u.moduls).map(function(c){ var m=moduleRow_(db,c); return m?{codi:m.codi,nom:m.nom,curs:m.curs}:{codi:c,nom:c}; });
-    var obj={id:u.id,nom:u.nom,cognom:u.cognom,username:u.username,rol:u.rol,classe:u.classe||'',correu:u.correu||'',modulsCodes:u.moduls||'',moduls:moduls,resetRequest:u.resetRequest||''};
+    var obj={id:u.id,nom:u.nom,cognom:u.cognom,username:u.username,rol:u.rol,classe:u.classe||'',correu:u.correu||'',modulsCodes:u.moduls||'',moduls:moduls,resetRequest:u.resetRequest||'',resets:Number(u.resets)||0};
     if(u.rol==='admin') admins.push(obj); else if(u.rol==='professor') professors.push(obj); else if(u.rol==='alumne') alumnes.push(obj); });
   admins.sort(bySort_); professors.sort(bySort_); alumnes.sort(bySort_);
   return {admins:admins,professors:professors,alumnes:alumnes}; }
@@ -547,7 +560,41 @@ function changePassword_(db,p){ var u=userById_(db,p.userId); if(!u) throw new E
 function requestPasswordReset_(db,p){ var u=db.users.filter(function(x){return x.username===String(p.username||'').trim();})[0];
   if(!u) throw new Error('No s\'ha trobat cap usuari amb aquest nom d\'usuari.');
   var d=new Date(); function z(n){return (n<10?'0':'')+n;}
-  u.resetRequest=z(d.getDate())+'/'+z(d.getMonth()+1)+'/'+d.getFullYear()+' '+z(d.getHours())+':'+z(d.getMinutes()); return true; }
+  u.resetRequest=z(d.getDate())+'/'+z(d.getMonth()+1)+'/'+d.getFullYear()+' '+z(d.getHours())+':'+z(d.getMinutes());
+  u.resets=(Number(u.resets)||0)+1; return true; }
+
+/* ============== MISSATGES MASSIUS (AVISOS) ============== */
+function saveAvis_(db,p){
+  var text=String(p.text||'').trim(); if(!text) throw new Error('El text del missatge no pot estar buit.');
+  var mode=String(p.mode||'rol');
+  var rols=(p.rols||[]).filter(Boolean), classes=(p.classes||[]).filter(Boolean), dest=(p.destinataris||[]).filter(Boolean);
+  if(mode==='rol'&&!rols.length) throw new Error('Cal seleccionar almenys un rol destinatari.');
+  if(mode==='classe'&&!classes.length) throw new Error('Cal seleccionar almenys una classe.');
+  if(mode==='individual'&&!dest.length) throw new Error('Cal seleccionar almenys un destinatari.');
+  var d=new Date(); function z(n){return (n<10?'0':'')+n;}
+  var id='avis_'+d.getTime();
+  if(!db.avisos) db.avisos=[];
+  db.avisos.push({ id:id, text:text, rols:rols, classes:classes, destinataris:dest,
+    data:z(d.getDate())+'/'+z(d.getMonth()+1)+'/'+d.getFullYear()+' '+z(d.getHours())+':'+z(d.getMinutes()), autor:String(p.autor||'admin') });
+  return { id:id };
+}
+function getAvisos_(db,p){
+  var rol=String((p.user&&p.user.rol)||p.rol||'').trim(), classe=String((p.user&&p.user.classe)||'').trim(), uname=String((p.user&&p.user.username)||'').trim();
+  // sense usuari (historial de l'administració): es mostren tots els missatges
+  if(!p.user) return (db.avisos||[]).slice().reverse();
+  return (db.avisos||[]).filter(function(a){
+    if(a.destinataris&&a.destinataris.length) return !!uname&&a.destinataris.indexOf(uname)>=0;
+    if(a.classes&&a.classes.length) return !!classe&&a.classes.indexOf(classe)>=0;
+    return !rol||!(a.rols||[]).length||a.rols.indexOf(rol)>=0;
+  }).slice().reverse();
+}
+function markAvisosLlegits_(db,p){
+  var uname=String((p.user&&p.user.username)||p.username||'').trim(); if(!uname) throw new Error('Usuari no identificat.');
+  var u=db.users.filter(function(x){return x.username===uname;})[0]; if(!u) return true;
+  if(!u.avisosLlegits) u.avisosLlegits=[];
+  (p.ids||[]).map(String).forEach(function(id){ if(u.avisosLlegits.indexOf(id)<0) u.avisosLlegits.push(id); });
+  return true;
+}
 
 /* ============== ADMIN: DESDOBLAMENTS / CLASSES / EXEMPLES ============== */
 function checkModulGrups_(db,p){ var classe=String(p.classe||'').trim(), codi=normVal_(p.moduleCodi), has=false;
@@ -575,12 +622,12 @@ function getInitialData_(db,p){ var courses=getCourses_(db,p), modsByCurs={}, al
   return { courses:courses, modsByCurs:modsByCurs, allModules:allMods, allClasses:getAllClasses_(db,p), capabilities:getCapabilities_(db) }; }
 function loginAndInit_(db,p){ var user=loginUser_(db,p);
   if(user.rol==='alumne') user.historialEnabled=!!db.classes[user.classe];
-  return { user:user, initialData:getInitialData_(db,{user:user}) }; }
+  return { user:user, initialData:getInitialData_(db,{user:user}), avisos:getAvisos_(db,{user:user}) }; }
 
 /* ============================ ROUTER ============================ */
 var MUTATING = { saveActivity:1, saveRegistre:1, deleteRegistre:1, saveProject:1, deleteProject:1, deleteActivity:1, deleteUser:1, editUser:1,
   saveClassesConfig:1, saveExemplesConfig:1, resetPassword:1, changePassword:1, requestPasswordReset:1, saveDesdoblaments:1,
-  saveCatalogActivity:1, deleteCatalogActivity:1 };
+  saveCatalogActivity:1, deleteCatalogActivity:1, saveAvis:1, markAvisosLlegits:1 };
 
 function handleRequest(action, payload){
   payload=payload||{}; var db=load_();
@@ -588,7 +635,10 @@ function handleRequest(action, payload){
     var res;
     switch(action){
       case 'ping':                  res={ ok:true, msg:'pong (demo)' }; break;
-      case 'loginAndInit':          var li=loginAndInit_(db,payload); res={ ok:true, user:li.user, initialData:li.initialData }; break;
+      case 'loginAndInit':          var li=loginAndInit_(db,payload); res={ ok:true, user:li.user, initialData:li.initialData, avisos:li.avisos }; break;
+      case 'saveAvis':              res={ ok:true, done:saveAvis_(db,payload) }; break;
+      case 'getAvisos':             res={ ok:true, avisos:getAvisos_(db,payload) }; break;
+      case 'markAvisosLlegits':     res={ ok:true, done:markAvisosLlegits_(db,payload) }; break;
       case 'getInitialData':        res={ ok:true, initialData:getInitialData_(db,payload) }; break;
       case 'login':                 res={ ok:true, user:loginUser_(db,payload) }; break;
       case 'getCourses':            res={ ok:true, courses:getCourses_(db,payload) }; break;
