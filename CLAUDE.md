@@ -20,6 +20,7 @@ Quan l'usuari escrigui només **«actualiza»** (o «actualitza»), vol dir:
    - Actualitzar les explicacions de la demo (`DEMO_INFO`, `TOURS`) i el `README.md` si hi ha funcions noves.
 4. Provar al navegador els tres rols i les funcions noves.
 5. Fer commit i push a la branca de treball de la Mostra, i actualitzar aquí l'últim commit sincronitzat.
+6. En el missatge final a l'usuari, **anomenar sempre els fitxers de la Mostra que s'han modificat** (només els noms, sense detall).
 
 ## Últim commit sincronitzat de l'oficial
 
