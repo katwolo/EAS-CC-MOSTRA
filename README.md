@@ -22,7 +22,7 @@ En lloc d'usuari i contrasenya, la pantalla d'inici mostra tres targetes per ent
 |-----|------------------|-------------|
 | **Professor/a** | Laia Ferrer | Enregistrar evidències, consultar l'Inici, l'Historial, el Resum MP i l'Alumnat, exportar PDF i el buidatge (CSV), i gestionar activitats i projectes dels seus mòduls. |
 | **Alumne/a** | Aina Puig (1A) | Consultar el seu resum de Capacitats Clau (només amb colors) i l'historial d'activitats avaluades. |
-| **Administrador/a** | Joana (Admin Demo) | Gestionar usuaris, classes, desdoblaments, avisos de contrasenya, missatges massius, el catàleg comú d'activitats i els exemples pràctics. |
+| **Administrador/a** | Joana (Admin Demo) | Gestionar usuaris, classes, desdoblaments, avisos de contrasenya, missatges massius, pesos de les CC i escala de notes, el catàleg comú d'activitats i els exemples pràctics. |
 
 Des de la barra superior (**Veure com a…**) es pot canviar de rol en qualsevol moment sense tornar a la pantalla d'inici.
 

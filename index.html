@@ -1410,18 +1410,18 @@ async function renderUsuaris(){
       '<button class="btn sm '+(state.adminTab==='desdoblaments'?'':'ghost')+'" onclick="setAdminTab(\'desdoblaments\')">Desdoblaments</button>'+
       '<button class="btn sm '+(state.adminTab==='avisos'?'':'ghost')+'" id="tabAvisos" onclick="setAdminTab(\'avisos\')">Avisos</button>'+
       '<button class="btn sm '+(state.adminTab==='missatges'?'':'ghost')+'" onclick="setAdminTab(\'missatges\')">Missatges</button>'+
+      '<button class="btn sm '+(state.adminTab==='notes'?'':'ghost')+'" onclick="setAdminTab(\'notes\')">Notes</button>'+
     '</div>'+
     '<div id="adminBody"><div class="empty">Carregant…</div></div>';
   var r=await call('getAdminUsers');
   if(!r||!r.ok) return showError(r&&r.error?r.error:'Error carregant usuaris.');
   var ad=r.data;
   state._adminUsers=[].concat(ad.admins||[]).concat(ad.professors||[]).concat(ad.alumnes||[]);
-  var nAvisos=state._adminUsers.filter(function(u){return u.resetRequest;}).length;
-  var tabBtn=$('tabAvisos'); if(tabBtn&&nAvisos) tabBtn.textContent='Avisos ('+nAvisos+')';
   if(state.adminTab==='usuaris') renderAdminUsuarisTab(ad);
   else if(state.adminTab==='classes') renderAdminClassesTab();
   else if(state.adminTab==='desdoblaments') renderAdminDesdoblTab(ad);
   else if(state.adminTab==='missatges') renderAdminMissatgesTab();
+  else if(state.adminTab==='notes') renderAdminNotesTab();
   else renderAdminAvisosTab(ad);
 }
 function setAdminTab(t){ state.adminTab=t; renderUsuaris(); }
@@ -1663,7 +1663,7 @@ function filterAvisUsers(q){
   });
 }
 async function loadAvisHistorial(){
-  var r=await call('getAvisos',{rol:''});
+  var r=await call('getAvisos',{all:true});
   if(!r||!r.ok||!r.avisos||!r.avisos.length){
     $('avisHistorial').innerHTML='<div class="empty">No hi ha missatges enviats.</div>'; return;
   }
@@ -1722,6 +1722,124 @@ async function doSendAvis(btn){
   toast('Missatge desat. Apareixerà als usuaris quan entrin.');
   $('avisText').value='';
   loadAvisHistorial();
+}
+async function renderAdminNotesTab(){
+  $('adminBody').innerHTML='<div class="empty">Carregant configuració…</div>';
+  var rN=await call('getNotesConfig',{});
+  var rP=await call('getPesos',{});
+  var notes=(rN&&rN.ok&&rN.notes)||[{val:'1',nom:'Iniciació'},{val:'4',nom:'En procés'},{val:'7',nom:'Assolit'},{val:'10',nom:'Excel·lent'},{val:'NP',nom:'No presentat'}];
+  var pesosData=(rP&&rP.ok&&rP.pesos)||{p1r:null,p2n:null};
+  var CAPS_ARR=['c1','c2','c3','c4','c5','c6','c7'];
+  var CAP_NOMS_UI={c1:'Organització del treball',c2:'Iniciativa',c3:'Responsabilitat en el treball',c4:'Autonomia',c5:'Treball en equip',c6:'Relacions interpersonals',c7:'Resolució de problemes'};
+  var CAP_COLORS_UI={c1:'#B4A7D6',c2:'#FFE599',c3:'#A4C2F4',c4:'#B6D7A8',c5:'#A2C4C9',c6:'#F9CB9C',c7:'#EA9999'};
+  var NOTA_COLORS={'1':'#E25563','4':'#E0A23C','7':'#4F8EF7','10':'#3FB27F','NP':'#D9D9D9'};
+
+  function buildCCPanel(curs,pd){
+    var rows='';
+    CAPS_ARR.forEach(function(cap){
+      var pct=pd?+((pd[cap]||0)*100).toFixed(4):+(100/7).toFixed(4);
+      rows+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
+        +'<div style="width:10px;height:10px;border-radius:50%;background:'+CAP_COLORS_UI[cap]+';flex-shrink:0"></div>'
+        +'<div style="flex:1;font-size:13px;color:var(--text-2)">'+CAP_NOMS_UI[cap]+'</div>'
+        +'<div style="display:flex;align-items:center;gap:4px">'
+        +'<input id="peso_'+curs+'_'+cap+'" type="number" min="0" max="100" step="any" value="'+pct+'" oninput="updatePesoTotal(\''+curs+'\')" style="width:68px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface-2);color:var(--text);text-align:right;font-variant-numeric:tabular-nums">'
+        +'<span style="font-size:12px;color:var(--muted)">%</span>'
+        +'</div></div>';
+    });
+    return rows
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:8px 10px;background:var(--surface-2);border-radius:8px;font-size:13px">'
+        +'<span style="color:var(--muted);font-weight:500">Total</span>'
+        +'<span id="pesoTotal_'+curs+'" style="font-weight:700;font-variant-numeric:tabular-nums"></span>'
+      +'</div>'
+      +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+        +'<button class="btn sm ghost" onclick="renderAdminNotesTab()">Restablir</button>'
+        +'<button id="savePesos_'+curs+'" class="btn sm" onclick="doSavePesos(\''+curs+'\')">Desar pesos</button>'
+      +'</div>';
+  }
+
+  var notaRowsHtml='';
+  notes.forEach(function(n,i){
+    var col=NOTA_COLORS[n.val]||'#999';
+    notaRowsHtml+='<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="width:36px;height:36px;border-radius:8px;background:'+col+';flex-shrink:0"></div>'
+      +'<input id="notaNom_'+i+'" type="text" value="'+esc(n.nom)+'" placeholder="Nom del nivell" style="flex:1;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface-2);color:var(--text);font-family:inherit">'
+      +'<div style="display:flex;align-items:center;gap:4px">'
+        +'<span style="font-size:11px;color:var(--muted)">val.</span>'
+        +'<input id="notaVal_'+i+'" type="text" value="'+esc(n.val)+'" style="width:46px;padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:14px;font-weight:600;background:var(--surface-2);color:var(--text);text-align:center;font-family:inherit">'
+      +'</div></div>';
+  });
+
+  $('adminBody').innerHTML=
+    '<div style="display:flex;flex-direction:column;gap:16px">'
+    +'<div class="panel" style="padding:16px">'
+      +'<div style="font-weight:600;font-size:15px;margin-bottom:4px">⚖️ Pesos Capacitats Clau</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Percentatge de cada CC en el càlcul de la nota. Ha de sumar 100%.</div>'
+      +'<div style="display:flex;gap:6px;margin-bottom:14px">'
+        +'<button id="cursBtn_1r" class="btn sm" onclick="setCursNotes(\'1r\')">1r curs</button>'
+        +'<button id="cursBtn_2n" class="btn sm ghost" onclick="setCursNotes(\'2n\')">2n curs</button>'
+      +'</div>'
+      +'<div id="ccPanel_1r">'+buildCCPanel('1r',pesosData.p1r)+'</div>'
+      +'<div id="ccPanel_2n" style="display:none">'+buildCCPanel('2n',pesosData.p2n)+'</div>'
+    +'</div>'
+    +'<div class="panel" style="padding:16px">'
+      +'<div style="font-weight:600;font-size:15px;margin-bottom:4px">🎨 Escala de notes</div>'
+      +'<div style="font-size:12px;color:var(--muted);margin-bottom:14px">Valor numèric i nom de cada nivell d\'assoliment. El color és fix.</div>'
+      +notaRowsHtml
+      +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">'
+        +'<button class="btn sm ghost" onclick="renderAdminNotesTab()">Restablir</button>'
+        +'<button id="saveNotesBtn" class="btn sm" onclick="doSaveNotesConfig()">Desar escala</button>'
+      +'</div>'
+    +'</div>'
+    +'</div>';
+
+  updatePesoTotal('1r');
+  updatePesoTotal('2n');
+}
+function setCursNotes(curs){
+  ['1r','2n'].forEach(function(c){
+    var panel=document.getElementById('ccPanel_'+c);
+    var btn=document.getElementById('cursBtn_'+c);
+    if(panel) panel.style.display=c===curs?'':'none';
+    if(btn) btn.className='btn sm'+(c===curs?'':' ghost');
+  });
+}
+function updatePesoTotal(curs){
+  var total=0;
+  ['c1','c2','c3','c4','c5','c6','c7'].forEach(function(cap){
+    var el=document.getElementById('peso_'+curs+'_'+cap);
+    if(el) total+=(parseFloat(el.value)||0);
+  });
+  total=Math.round(total*10000)/10000;
+  var el=document.getElementById('pesoTotal_'+curs);
+  if(el){ el.textContent=total+'%'; el.style.color=Math.abs(total-100)<0.01?'#3fb27f':'#e25563'; }
+}
+async function doSavePesos(curs){
+  var btn=document.getElementById('savePesos_'+curs);
+  btnBusy_(btn,'Desant…');
+  var pesos={};
+  ['c1','c2','c3','c4','c5','c6','c7'].forEach(function(cap){
+    var el=document.getElementById('peso_'+curs+'_'+cap);
+    pesos[cap]=parseFloat(el&&el.value)||0;
+  });
+  var r=await call('savePesos',{curs:curs,pesos:pesos});
+  btnFree_(btn);
+  if(!r||!r.ok) return showError(r&&r.error?r.error:'Error desant pesos');
+  toast('Pesos desats correctament');
+}
+async function doSaveNotesConfig(){
+  var btn=document.getElementById('saveNotesBtn');
+  btnBusy_(btn,'Desant…');
+  var notes=[];
+  for(var i=0;;i++){
+    var valEl=document.getElementById('notaVal_'+i);
+    var nomEl=document.getElementById('notaNom_'+i);
+    if(!valEl||!nomEl) break;
+    notes.push({val:valEl.value.trim(),nom:nomEl.value.trim()});
+  }
+  var r=await call('saveNotesConfig',{notes:notes});
+  btnFree_(btn);
+  if(!r||!r.ok) return showError(r&&r.error?r.error:'Error desant escala');
+  toast('Escala de notes desada correctament');
 }
 async function renderAdminDesdoblTab(ad){
   var classes=[]; var seen={};
@@ -2311,7 +2429,8 @@ var DEMO_INFO={
     h:'Panell de l\'administració.'+
       '<ul><li><b>Usuaris</b>: cerca, edita dades i rol, restableix contrasenyes o esborra usuaris.</li><li><b>Classes</b>: activa l\'historial visible per a l\'alumnat de cada classe.</li>'+
       '<li><b>Desdoblaments</b>: reparteix l\'alumnat d\'un mòdul en grups G1/G2.</li><li><b>Avisos</b>: sol·licituds de restabliment de contrasenya i quantes vegades l\'ha demanat cada usuari.</li>'+
-      '<li><b>Missatges</b>: envia avisos al professorat, a l\'alumnat, a classes concretes o a persones concretes. Apareixen com a finestra emergent quan entren (prova d\'enviar-ne un i canvia de rol).</li></ul>'},
+      '<li><b>Missatges</b>: envia avisos al professorat, a l\'alumnat, a classes concretes o a persones concretes. Apareixen com a finestra emergent quan entren (prova d\'enviar-ne un i canvia de rol).</li>'+
+      '<li><b>Notes</b>: pes de cada Capacitat Clau en la nota de 1r i de 2n curs (en %, ha de sumar 100%) i noms de l\'escala de nivells d\'assoliment. Prova de canviar els pesos i mira com canvia la nota al resum global d\'un alumne.</li></ul>'},
   actcataleg:{t:'Catàleg comú d\'activitats',
     h:'Activitats compartides per tots els mòduls i tot el professorat. Cada activitat defineix quins indicadors de les Capacitats Clau s\'hi avaluen.'}
 };

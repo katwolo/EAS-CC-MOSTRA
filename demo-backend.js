@@ -11,7 +11,7 @@
 (function(global){
 'use strict';
 
-var STORE_KEY = 'eascc_demo_db_v2';
+var STORE_KEY = 'eascc_demo_db_v3';
 
 /* ============================ CONSTANTS ============================ */
 var CAPS = ['c1','c2','c3','c4','c5','c6','c7'];
@@ -92,7 +92,8 @@ function buildSeed(){
   var rnd = mulberry32(20261116);
   var db = { users:[], moduls:MODULS.map(function(m){ return {codi:m.codi,nom:m.nom,curs:m.curs}; }),
     indicadors:{}, cataleg:{}, catalegKw:{}, org:{}, modAct:{}, modActKw:{}, regs:{}, classes:{}, exemples:null,
-    pesos:{p1r:null,p2n:null}, nextBlockId:1 };
+    pesos:{p1r:null,p2n:null}, nextBlockId:1,
+    notesConfig:[{val:'1',nom:'Iniciació'},{val:'4',nom:'En procés'},{val:'7',nom:'Assolit'},{val:'10',nom:'Excel·lent'},{val:'NP',nom:'No presentat'}] };
 
   // --- Indicadors
   CAPS.forEach(function(cap){
@@ -234,7 +235,7 @@ function buildSeed(){
 var DB=null;
 function load_(){
   if(DB) return DB;
-  try{ localStorage.removeItem('eascc_demo_db_v1'); }catch(e){}
+  try{ localStorage.removeItem('eascc_demo_db_v1'); localStorage.removeItem('eascc_demo_db_v2'); }catch(e){}
   try{ var raw=localStorage.getItem(STORE_KEY); if(raw){ DB=JSON.parse(raw); return DB; } }catch(e){}
   DB=buildSeed(); save_(); return DB;
 }
@@ -563,6 +564,20 @@ function requestPasswordReset_(db,p){ var u=db.users.filter(function(x){return x
   u.resetRequest=z(d.getDate())+'/'+z(d.getMonth()+1)+'/'+d.getFullYear()+' '+z(d.getHours())+':'+z(d.getMinutes());
   u.resets=(Number(u.resets)||0)+1; return true; }
 
+/* ============== NOTES: PESOS CC I ESCALA ============== */
+function readPesos_(db){ return { p1r:db.pesos&&db.pesos.p1r||null, p2n:db.pesos&&db.pesos.p2n||null }; }
+function savePesos_(db,p){
+  var curs=String(p.curs||'').trim(), pesos=p.pesos||{}, out={};
+  CAPS.forEach(function(cap){ out[cap]=(Number(pesos[cap])||0)/100; });   // el formulari envia percentatges
+  if(!db.pesos) db.pesos={p1r:null,p2n:null};
+  if(curs==='2n') db.pesos.p2n=out; else db.pesos.p1r=out;
+  return true;
+}
+function readNotesConfig_(db){ return (db.notesConfig&&db.notesConfig.length)?db.notesConfig:
+  [{val:'1',nom:'Iniciació'},{val:'4',nom:'En procés'},{val:'7',nom:'Assolit'},{val:'10',nom:'Excel·lent'},{val:'NP',nom:'No presentat'}]; }
+function saveNotesConfig_(db,p){ var notes=p.notes||[]; if(!notes.length) throw new Error('Cal especificar les notes.');
+  db.notesConfig=notes.slice(0,5).map(function(n){ return {val:String(n.val||''),nom:String(n.nom||'')}; }); return true; }
+
 /* ============== MISSATGES MASSIUS (AVISOS) ============== */
 function saveAvis_(db,p){
   var text=String(p.text||'').trim(); if(!text) throw new Error('El text del missatge no pot estar buit.');
@@ -581,7 +596,7 @@ function saveAvis_(db,p){
 function getAvisos_(db,p){
   var rol=String((p.user&&p.user.rol)||p.rol||'').trim(), classe=String((p.user&&p.user.classe)||'').trim(), uname=String((p.user&&p.user.username)||'').trim();
   // sense usuari (historial de l'administració): es mostren tots els missatges
-  if(!p.user) return (db.avisos||[]).slice().reverse();
+  if(p.all||!p.user) return (db.avisos||[]).slice().reverse();
   return (db.avisos||[]).filter(function(a){
     if(a.destinataris&&a.destinataris.length) return !!uname&&a.destinataris.indexOf(uname)>=0;
     if(a.classes&&a.classes.length) return !!classe&&a.classes.indexOf(classe)>=0;
@@ -627,7 +642,7 @@ function loginAndInit_(db,p){ var user=loginUser_(db,p);
 /* ============================ ROUTER ============================ */
 var MUTATING = { saveActivity:1, saveRegistre:1, deleteRegistre:1, saveProject:1, deleteProject:1, deleteActivity:1, deleteUser:1, editUser:1,
   saveClassesConfig:1, saveExemplesConfig:1, resetPassword:1, changePassword:1, requestPasswordReset:1, saveDesdoblaments:1,
-  saveCatalogActivity:1, deleteCatalogActivity:1, saveAvis:1, markAvisosLlegits:1 };
+  saveCatalogActivity:1, deleteCatalogActivity:1, saveAvis:1, markAvisosLlegits:1, savePesos:1, saveNotesConfig:1 };
 
 function handleRequest(action, payload){
   payload=payload||{}; var db=load_();
@@ -638,6 +653,10 @@ function handleRequest(action, payload){
       case 'loginAndInit':          var li=loginAndInit_(db,payload); res={ ok:true, user:li.user, initialData:li.initialData, avisos:li.avisos }; break;
       case 'saveAvis':              res={ ok:true, done:saveAvis_(db,payload) }; break;
       case 'getAvisos':             res={ ok:true, avisos:getAvisos_(db,payload) }; break;
+      case 'getPesos':              res={ ok:true, pesos:readPesos_(db) }; break;
+      case 'savePesos':             res={ ok:true, done:savePesos_(db,payload) }; break;
+      case 'getNotesConfig':        res={ ok:true, notes:readNotesConfig_(db) }; break;
+      case 'saveNotesConfig':       res={ ok:true, done:saveNotesConfig_(db,payload) }; break;
       case 'markAvisosLlegits':     res={ ok:true, done:markAvisosLlegits_(db,payload) }; break;
       case 'getInitialData':        res={ ok:true, initialData:getInitialData_(db,payload) }; break;
       case 'login':                 res={ ok:true, user:loginUser_(db,payload) }; break;
